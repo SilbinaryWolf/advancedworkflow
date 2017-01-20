@@ -2,21 +2,25 @@
 
 class FrontendWorkflowForm extends Form{
 
-	function httpSubmission($request) {
-		$vars = $request->requestVars();
-		if(isset($funcName)) {
-			Form::set_current_action($funcName);
-		}
-	
+	/*private static $allowed_actions = array(
+		'httpSubmission',
+	);*/
+
+	/**
+	 * @var array
+	 */
+	/*private static $url_handlers = array(
+		'field/$FieldName!' => 'handleField',
+		'POST ' => 'httpSubmission',
+		'GET ' => 'httpSubmission',
+		'HEAD ' => 'httpSubmission',
+	);*/
+
+	public function httpSubmission($request) {
 		// Populate the form
+		$vars = $request->requestVars();
 		$this->loadDataFrom($vars, true);
-	
-		// Protection against CSRF attacks
-		$token = $this->getSecurityToken();
-		if(!$token->checkRequest($request)) {
-			$this->httpError(400, _t('AdvancedWorkflowFrontendForm.SECURITYTOKENCHECK', "Security token doesn't match, possible CSRF attack."));
-		}
-	
+		
 		// Determine the action button clicked
 		$funcName = null;
 		foreach($vars as $paramName => $paramVal) {
@@ -53,6 +57,7 @@ class FrontendWorkflowForm extends Form{
 		
 		if(isset($funcName)) {
 			$this->setButtonClicked($funcName);
+			Form::set_current_action($funcName);
 		}
 	
 		// Permission checks (first on controller, then falling back to form)
@@ -87,40 +92,19 @@ class FrontendWorkflowForm extends Form{
 		}
 		
 		// Validate the form
-		if(!$this->validate() && $wfTransType == 'Active') {
+		if(!$this->validate() && $wfTransType === 'Active') {
 			if(Director::is_ajax()) {
 				// Special case for legacy Validator.js implementation (assumes eval'ed javascript collected through FormResponse)
 				if($this->validator->getJavascriptValidationHandler() == 'prototype') {
 					return FormResponse::respond();
-				} else {
-					$acceptType = $request->getHeader('Accept');
-					if(strpos($acceptType, 'application/json') !== FALSE) {
-						// Send validation errors back as JSON with a flag at the start
-						$response = new SS_HTTPResponse(Convert::array2json($this->validator->getErrors()));
-						$response->addHeader('Content-Type', 'application/json');
-					} else {
-						$this->setupFormErrors();
-						// Send the newly rendered form tag as HTML
-						$response = new SS_HTTPResponse($this->forTemplate());
-						$response->addHeader('Content-Type', 'text/html');
-					}
-				
-					return $response;
 				}
-			} else {
-				if($this->getRedirectToFormOnValidationError()) {
-					if($pageURL = $request->getHeader('Referer')) {
-						if(Director::is_site_url($pageURL)) {
-							// Remove existing pragmas
-							$pageURL = preg_replace('/(#.*)/', '', $pageURL);
-							return Director::redirect($pageURL . '#' . $this->FormName());
-						}
-					}
-				}
-				return $this->controller->redirectBack();
+			}
+			$result = $this->getValidationErrorResponse();
+			if ($result) {
+				return $result;
 			}
 		}
-	
+
 		// First, try a handler method on the controller (has been checked for allowed_actions above already)
 		if($this->controller->hasMethod($funcName)) {
 			return $this->controller->$funcName($vars, $this, $request);
